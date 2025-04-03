@@ -1,0 +1,11 @@
+python3 -m accelerate.commands.launch \
+    --num_processes=1 \
+    -m lmms_eval \
+    --model llava \
+    --model_args pretrained="liuhaotian/llava-v1.5-7b" \
+    --tasks mazenav \
+    --batch_size 4 \
+    --log_samples \
+    --log_samples_suffix llava_v1.5 \
+    --output_path ./logs/dev_mazenav/ \
+    --limit 16
