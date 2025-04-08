@@ -284,7 +284,7 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
 
     if args.wandb_args:
         if "name" not in args.wandb_args:
-            name = f"{args.model}_{args.model_args}_{utils.get_datetime_str(timezone=args.timezone)}"
+            name = f"{args.model}_{args.model_args.replace('=', '_')}_{utils.get_datetime_str(timezone=args.timezone)}"
             name = utils.sanitize_long_string(name)
             args.wandb_args += f",name={name}"
         wandb_logger = WandbLogger(**simple_parse_args_string(args.wandb_args))

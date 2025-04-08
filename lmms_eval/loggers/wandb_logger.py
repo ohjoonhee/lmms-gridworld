@@ -14,9 +14,11 @@ from lmms_eval.loggers.utils import _handle_non_serializable, remove_none_patter
 def get_wandb_printer() -> Literal["Printer"]:
     """Returns a wandb printer instance for pretty stdout."""
     from wandb.sdk.lib.printer import get_printer
+    from wandb.sdk.lib.printer import Printer
     from wandb.sdk.wandb_settings import Settings
 
-    printer = get_printer(Settings()._jupyter)
+    # printer = get_printer(Settings()._jupyter)
+    printer = Printer()
     return printer
 
 
@@ -49,7 +51,7 @@ class WandbLogger:
         else:
             self.run = wandb.run
 
-        self.printer = get_wandb_printer()
+        # self.printer = get_wandb_printer()
 
     def post_init(self, results: Dict[str, Any]) -> None:
         self.results: Dict[str, Any] = copy.deepcopy(results)
@@ -212,8 +214,16 @@ class WandbLogger:
         if config["output_type"] == "loglikelihood":
             instance = [x["arguments"][0][0] for x in data]
             labels = [x["arguments"][0][1] for x in data]
-            resps = [f'log probability of continuation is {x["resps"][0][0][0]} ' + "\n\n" + "continuation will {} generated with greedy sampling".format("not be" if not x["resps"][0][0][1] else "be") for x in data]
-            filtered_resps = [f'log probability of continuation is {x["filtered_resps"][0][0]} ' + "\n\n" + "continuation will {} generated with greedy sampling".format("not be" if not x["filtered_resps"][0][1] else "be") for x in data]
+            resps = [
+                f'log probability of continuation is {x["resps"][0][0][0]} ' + "\n\n" + "continuation will {} generated with greedy sampling".format("not be" if not x["resps"][0][0][1] else "be")
+                for x in data
+            ]
+            filtered_resps = [
+                f'log probability of continuation is {x["filtered_resps"][0][0]} '
+                + "\n\n"
+                + "continuation will {} generated with greedy sampling".format("not be" if not x["filtered_resps"][0][1] else "be")
+                for x in data
+            ]
         elif config["output_type"] == "multiple_choice":
             instance = [x["arguments"][0][0] for x in data]
             choices = ["\n".join([f"{idx}. {y[1]}" for idx, y in enumerate(x["arguments"])]) for x in data]
@@ -224,7 +234,7 @@ class WandbLogger:
             resps = [x["resps"][0][0] for x in data]
             filtered_resps = [x["filtered_resps"][0] for x in data]
         elif config["output_type"] == "generate_until":
-            instance = [x["arguments"][0][0] for x in data]
+            instance = [x["input"] for x in data]
             resps = [x["resps"][0][0] for x in data]
             filtered_resps = [x["filtered_resps"][0] for x in data]
 
