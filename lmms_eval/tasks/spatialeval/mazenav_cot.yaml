@@ -1,0 +1,5 @@
+include: mazenav.yaml
+task: mazenav_cot
+lmms_eval_specific_kwargs:
+  default:
+    prompt_path: "prompts/cot.jinja"

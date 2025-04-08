@@ -2,13 +2,28 @@ import re
 from typing import Optional
 import datasets
 
+try:
+    from jinja2 import Environment, FileSystemLoader
+except ImportError:
+    raise ImportError("jinja2 is not installed. Please install it to use this function.")
+
 
 def mazenav_doc_to_visual(doc):
     return [doc["image"].convert("RGB")]
 
 
+def load_prompt_from_path(prompt_path: str) -> str:
+    pass
+
+
 def mazenav_doc_to_text(doc, lmms_eval_specific_kwargs):
     question = doc["text"]
+
+    if "prompt_path" in lmms_eval_specific_kwargs:
+        env = Environment(loader=FileSystemLoader(""))
+        template = env.get_template(lmms_eval_specific_kwargs["prompt_path"])
+        return template.render({"question": question})
+
     pre_prompt = lmms_eval_specific_kwargs["pre_prompt"]
     post_prompt = lmms_eval_specific_kwargs["post_prompt"]
     return f"{pre_prompt}{question}{post_prompt}"
