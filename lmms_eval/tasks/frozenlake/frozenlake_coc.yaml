@@ -1,0 +1,7 @@
+include: frozenlake.yaml
+task: "frozenlake_coc"
+lmms_eval_specific_kwargs:
+  default:
+    prompt_path: "prompts/coc.jinja"
+metadata:
+  - version: 0.0
