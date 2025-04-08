@@ -1,0 +1,7 @@
+include: mazenav_vqa.yaml
+task: "mazenav_vqa_coc"
+lmms_eval_specific_kwargs:
+  default:
+    prompt_path: "prompts/coc.jinja"
+metadata:
+  - version: 0.0

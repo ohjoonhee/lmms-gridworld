@@ -1,0 +1,10 @@
+The figure represents a Maze, where the colored blocks have the following meanings:
+- Black blocks represent walls that are impassable barriers.
+- White blocks represent navigable paths within the maze, but not necessarily the correct path to the exit.
+- Green block denotes the starting point (S) of the maze.
+- Red block marks the endpoint or the exit (E) of the maze.
+- The objective is to navigate from S to E by following the path marked by Blue. Movement is allowed in any of the four cardinal directions (up, down, left, right) along the White blocks,
+but to solve the maze, follow the path designated by Blue blocks.
+- A right turn is defined as a change in movement direction that is 90 degrees clockwise relative to the previous direction.
+- A left turn is defined as a change in movement direction that is 90 degrees anticlockwise relative to the previous direction.
+Please answer the following question based on the provided information. How many right turns are there in the provided path (marked by Blue) from S to E? Available options:
