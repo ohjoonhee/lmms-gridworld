@@ -117,8 +117,9 @@ def mazenav_process_results(doc, results):
     ref_ans = str(doc["answer"]).lower()
     parsed_pred = str(parsed_pred).lower() if parsed_pred is not None else "null"
     eval_result = int(ref_ans.lower() in parsed_pred.lower())
-    # eval_result_opt = int(ref_ans_opt.lower() in pred.lower())
-    # eval_result = max(eval_result, eval_result_opt)
+    ref_ans_opt = chr(65 + doc["choices"].index(doc["answer"]))  
+    eval_result_opt = int(ref_ans_opt.lower() in pred.lower())
+    eval_result = max(eval_result, eval_result_opt)
 
     # return_dict = {"parsed_match": eval_result, "llm_match": llm_judge_result}
     return_dict = {"parsed_match": eval_result}
