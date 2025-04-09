@@ -1,97 +1,57 @@
 import base64
+import os
+import uuid
+import warnings
 from io import BytesIO
 from typing import List, Optional, Tuple, Union
 
-import decord
-import numpy as np
+warnings.simplefilter("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore")
+
 import torch
 from accelerate import Accelerator, DistributedType
 from loguru import logger as eval_logger
 from PIL import Image
 from tqdm import tqdm
-from transformers import (
-    AutoProcessor,
-    AutoTokenizer,
-    Qwen2_5_VLForConditionalGeneration,
-)
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.model import lmms
 from lmms_eval.api.registry import register_model
-from lmms_eval.models.model_utils.load_video import read_video_pyav_base64
-
-try:
-    from qwen_vl_utils import process_vision_info
-except ImportError:
-    eval_logger.warning("Failed to import qwen_vl_utils; Please install it via `pip install qwen-vl-utils`")
 
 
-@register_model("qwen2_5_vl")
-class Qwen2_5_VL(lmms):
-    """
-    Qwen2.5_VL Model
-    "https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct"
-    """
-
+@register_model("vora")
+class VoRA(lmms):
     def __init__(
         self,
-        pretrained: str = "Qwen/Qwen2.5-VL-3B-Instruct",
+        pretrained: str = "",
         device: Optional[str] = "cuda",
-        device_map: Optional[str] = "auto",
+        dtype: Optional[Union[str, torch.dtype]] = torch.bfloat16,
         batch_size: Optional[Union[int, str]] = 1,
+        trust_remote_code: Optional[bool] = True,
         use_cache=True,
-        use_flash_attention_2: Optional[bool] = False,
-        min_pixels: int = 256 * 28 * 28,
-        max_pixels: int = 1605632,
-        max_num_frames: int = 32,
-        use_custom_video_loader: Optional[bool] = False,
-        fps: Optional[float] = None,  # Only applicable if use_custom_video_loader is True
-        max_image_size: Optional[int] = None,  # Only applicable if use_custom_video_loader is True
         **kwargs,
     ) -> None:
         super().__init__()
         # Do not use kwargs for now
         assert kwargs == {}, f"Unexpected kwargs: {kwargs}"
 
-        self.use_custom_video_loader = use_custom_video_loader
-        self.fps = fps
-        # if self.fps and not self.use_custom_video_loader:
-        #     raise ValueError("FPS is only applicable if use_custom_video_loader is True")
-        self.max_image_size = max_image_size
-        if self.max_image_size and not self.use_custom_video_loader:
-            raise ValueError("max_image_size is only applicable if use_custom_video_loader is True")
-
         accelerator = Accelerator()
         if accelerator.num_processes > 1:
             self._device = torch.device(f"cuda:{accelerator.local_process_index}")
-            self.device_map = f"cuda:{accelerator.local_process_index}"
-        elif accelerator.num_processes == 1 and device_map == "auto":
-            self._device = torch.device(device)
-            self.device_map = device_map
         else:
-            self._device = torch.device(f"cuda:{accelerator.local_process_index}")
-            self.device_map = f"cuda:{accelerator.local_process_index}"
+            self._device = device
+        self.dtype = dtype
 
-        if use_flash_attention_2:
-            self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                pretrained,
-                torch_dtype=torch.bfloat16,
-                device_map=self.device_map,
-                attn_implementation="flash_attention_2",
-            ).eval()
-        else:
-            self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(pretrained, torch_dtype="auto", device_map=self.device_map).eval()
-        self.max_pixels = max_pixels
-        self.min_pixels = min_pixels
-        self.max_num_frames = max_num_frames
-        self.processor = AutoProcessor.from_pretrained(pretrained, max_pixels=max_pixels, min_pixels=min_pixels, padding_side="left")
-        self._tokenizer = AutoTokenizer.from_pretrained(pretrained, padding_side="left")
-
-        self._config = self.model.config
+        self._model = AutoModelForCausalLM.from_pretrained(pretrained, device_map=self._device, trust_remote_code=trust_remote_code).eval()
+        self._model = self.model.to(self.dtype)
+        self._config = self._model.config
+        self._tokenizer = AutoTokenizer.from_pretrained(pretrained, trust_remote_code=trust_remote_code)
+        self.processor = AutoProcessor.from_pretrained(pretrained, trust_remote_code=trust_remote_code)
+        self.model.tie_weights()
         self.batch_size_per_gpu = int(batch_size)
         self.use_cache = use_cache
-
         if accelerator.num_processes > 1:
             assert accelerator.distributed_type in [
                 DistributedType.FSDP,
@@ -107,6 +67,7 @@ class Qwen2_5_VL(lmms):
             self._rank = self.accelerator.local_process_index
             self._world_size = self.accelerator.num_processes
         else:
+            self.model.to(self._device)
             self._rank = 0
             self._world_size = 1
 
@@ -129,11 +90,17 @@ class Qwen2_5_VL(lmms):
 
     @property
     def eot_token_id(self):
+        # we use EOT because end of *text* is more accurate for what we're doing than end of *sentence*
         return self.tokenizer.eos_token_id
 
     @property
     def max_length(self):
         return self._max_length
+
+    # should be deleted since max_new_tokens is decided by gen_kwargs not a model property
+    # @property
+    # def max_new_tokens(self) -> int:
+    #     return 256
 
     @property
     def batch_size(self):
@@ -152,7 +119,8 @@ class Qwen2_5_VL(lmms):
         return self._world_size
 
     def loglikelihood(self, requests: List[Instance]) -> List[Tuple[float, bool]]:
-        raise NotImplementedError("Loglikelihood is not implemented for Qwen2.5_VL")
+        # TODO
+        assert False, "We have not implemented this function for VoRA yet"
 
     def flatten(self, input):
         new_list = []
@@ -186,7 +154,16 @@ class Qwen2_5_VL(lmms):
             split = split[0]
             visuals = [doc_to_visual[0](self.task_dict[task][split][ids]) for ids in doc_id]
             visuals = self.flatten(visuals)
+            visual_paths = []
+            # save images to /tmp, name generated by hash function
+            # qwen accept image path. Have to do it here....
+            for visual in visuals:
+                name = uuid.uuid4().hex.upper()[0:6]
+                visual.save(f"/tmp/{name}.png")
+                visual_paths.append(f"/tmp/{name}.png")
 
+            # we assume all gen kwargs in the batch are the same
+            # this is safe to assume because the `grouper` object ensures it.
             gen_kwargs = all_gen_kwargs[0]
 
             # Set default values for until and max_new_tokens
@@ -200,46 +177,17 @@ class Qwen2_5_VL(lmms):
                 elif not isinstance(until, list):
                     raise ValueError(f"Expected `gen_kwargs['until']` to be of type Union[str,list] but got {type(until)}")
 
-            # if isinstance(contexts, tuple):
-            #     contexts = list(contexts)
-
-            # for i in range(len(contexts)):
-            #     for j in range(32):
-            #         if f"<image {j}>" in contexts[i]:
-            #             contexts[i] = contexts[i].replace(f"<image {j}>", "<image>")
-            #         if f"\\<image {j}\\>" in contexts[i]:
-            #             contexts[i] = contexts[i].replace(f"\\<image {j}\\>", "<image>")
-            # if "<image>" in contexts[i]:
-            #     contexts[i] = contexts[i].replace("<image>", "")
-            # print(contexts[i])
-
-            # for i in range(len(contexts)):
-            #     if "<image>" in contexts[i]:
-            #         contexts[i] = contexts[i].replace("<image>", "")
+            if isinstance(contexts, tuple):
+                contexts = list(contexts)
 
             messages = []
-            processed_visuals = []
             for i, context in enumerate(contexts):
-                # context += "\nPlease think step by step."
-                # if "<image>" in context:
-                #     context = context.replace("<image>", "")
-
-                message = [{"role": "system", "content": "You are a helpful assistant."}]
+                message = []
 
                 if len(visuals) > 0:
                     visual = visuals[i] if i < len(visuals) else None
-                    if isinstance(visual, str) and visual.endswith((".mp4", ".avi", ".mov")):  # Video file
-                        if self.use_custom_video_loader:
-                            visual = read_video_pyav_base64(visual, num_frm=self.max_num_frames, fps=self.fps, img_format="JPEG", max_image_size=self.max_image_size)
-                            image_contents = list(map(lambda x: f"data:image/jpeg;base64,{x}", visual))
-                            message.append({"role": "user", "content": [{"type": "video", "video": image_contents}, {"type": "text", "text": context}]})
-                        else:
-                            vr = decord.VideoReader(visual)
-                            first_frame = vr[0].asnumpy()
-                            height, width = first_frame.shape[:2]
-                            # max_pixels = height * width
-                            message.append({"role": "user", "content": [{"type": "video", "video": visual, "max_pixels": 360 * 420}, {"type": "text", "text": context}]})
-                    elif isinstance(visual, Image.Image):  # Single image
+
+                    if isinstance(visual, Image.Image):  # Single image
                         base64_image = visual.convert("RGB")
                         buffer = BytesIO()
                         base64_image.save(buffer, format="JPEG")
@@ -262,55 +210,46 @@ class Qwen2_5_VL(lmms):
                     message.append({"role": "user", "content": [{"type": "text", "text": context}]})
 
                 messages.append(message)
-            # print("message")
 
-            text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            image_inputs, video_inputs = process_vision_info(messages)
-            inputs = self.processor(
-                text=text,
-                images=image_inputs,
-                videos=video_inputs,
-                # fps=self.fps,
-                padding=True,
-                return_tensors="pt",
-            )
+            input_data = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=True, return_tensors="pt", return_dict=True).to(self.device).to(self.dtype)
 
-            if self.device_map == "auto":
-                inputs = inputs.to("cuda")
-            else:
-                inputs = inputs.to(self.device)
-
+            # preconfigure gen_kwargs with defaults
             if "max_new_tokens" not in gen_kwargs:
-                gen_kwargs["max_new_tokens"] = 4096
+                gen_kwargs["max_new_tokens"] = 1024
             if "temperature" not in gen_kwargs:
                 gen_kwargs["temperature"] = 0
             if "top_p" not in gen_kwargs:
                 gen_kwargs["top_p"] = None
             if "num_beams" not in gen_kwargs:
                 gen_kwargs["num_beams"] = 1
+            if "do_sample" not in gen_kwargs:
+                gen_kwargs["do_sample"] = False
+            if "repetition_penalty" not in gen_kwargs:
+                gen_kwargs["repetition_penalty"] = 1.0
+            if "length_penalty" not in gen_kwargs:
+                gen_kwargs["length_penalty"] = 0.9
+            if "min_length" not in gen_kwargs:
+                gen_kwargs["min_length"] = 4
+            if "eos_token_id" not in gen_kwargs:
+                gen_kwargs["eos_token_id"] = self.tokenizer.eos_token_id
 
-            pad_token_id = self.tokenizer.pad_token_id
-
+            prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True)
             cont = self.model.generate(
-                **inputs,
-                eos_token_id=self.tokenizer.eos_token_id,
-                pad_token_id=pad_token_id,
-                do_sample=True if gen_kwargs["temperature"] > 0 else False,
-                temperature=gen_kwargs["temperature"],
-                top_p=gen_kwargs["top_p"],
-                num_beams=gen_kwargs["num_beams"],
-                max_new_tokens=gen_kwargs["max_new_tokens"],
-                use_cache=self.use_cache,
+                input_data,
+                **gen_kwargs,
             )
+            answers = self.tokenizer.batch_decode(cont, skip_special_tokens=True, clean_up_tokenization_spaces=False)
 
-            generated_ids_trimmed = [out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, cont)]
-            answers = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
-            for i, ans in enumerate(answers):
-                answers[i] = ans
+            for text_outputs, context in zip(answers, contexts):
+                res.append(text_outputs)
 
-            for ans, context in zip(answers, contexts):
-                res.append(ans)
-                self.cache_hook.add_partial("generate_until", (context, gen_kwargs), ans)
+                self.cache_hook.add_partial("generate_until", (context, gen_kwargs), text_outputs)
+                # remove visuals from tmp
+                for visual_path in visual_paths:
+                    try:
+                        os.remove(visual_path)
+                    except:
+                        pass
                 pbar.update(1)
             # reorder this group of results back to original unsorted form
         res = re_ords.get_original(res)
