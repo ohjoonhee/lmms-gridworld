@@ -31,7 +31,7 @@ def mazenav_doc_to_text(doc, lmms_eval_specific_kwargs):
     if "prompt_path" in lmms_eval_specific_kwargs:
         env = Environment(loader=FileSystemLoader(""))
         template = env.get_template(lmms_eval_specific_kwargs["prompt_path"])
-        return template.render({"question": question})
+        return template.render({"question": question, "trajectory": str(doc['metadata']['path'])})
 
     pre_prompt = lmms_eval_specific_kwargs["pre_prompt"]
     post_prompt = lmms_eval_specific_kwargs["post_prompt"]
