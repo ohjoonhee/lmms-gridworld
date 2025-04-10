@@ -31,7 +31,7 @@ def mazenav_doc_to_text(doc, lmms_eval_specific_kwargs):
     if "prompt_path" in lmms_eval_specific_kwargs:
         env = Environment(loader=FileSystemLoader(""))
         template = env.get_template(lmms_eval_specific_kwargs["prompt_path"])
-        return template.render({"question": question, "trajectory": str(doc['metadata']['path'])})
+        return template.render({"question": question, "trajectory": str(doc["metadata"]["path"])})
 
     pre_prompt = lmms_eval_specific_kwargs["pre_prompt"]
     post_prompt = lmms_eval_specific_kwargs["post_prompt"]
@@ -43,24 +43,10 @@ def judge_with_llm(pred, ref, lmmms_eval_specific_kwargs):
     if api_key is None:
         raise ValueError("LLM_JUDGE_API_KEY is not provided in the environment variables.")
 
-    if "judge_llm_base_url" in lmmms_eval_specific_kwargs:
-        base_url = lmmms_eval_specific_kwargs["base_url"]
-    else:
-        base_url = os.getenv("JUDGE_LLM_API_BASE_URL")
-        if base_url is None:
-            raise ValueError("base_url is not provided in the arguments or environment variables.")
-
-    if "judge_llm_model" in lmmms_eval_specific_kwargs:
-        judge_llm = lmmms_eval_specific_kwargs["judge_llm"]
-    else:
-        judge_llm = os.getenv("JUDGE_LLM_MODEL")
-        if judge_llm is None:
-            raise ValueError("judge_llm is not provided in the arguments or environment variables.")
-
-    if "judge_llm_generation_kwargs" in lmmms_eval_specific_kwargs:
-        judge_llm_generation_kwargs = lmmms_eval_specific_kwargs["judge_llm_generation_kwargs"]
-    else:
-        judge_llm_generation_kwargs = dict()
+    base_url = os.getenv("JUDGE_LLM_API_BASE_URL")
+    judge_llm = os.getenv("JUDGE_LLM_MODEL")
+    if judge_llm is None:
+        raise ValueError("judge_llm is not provided in the arguments or environment variables.")
 
     client = openai.Client(api_key=api_key, base_url=base_url)
 
@@ -98,11 +84,8 @@ Do not explain your decision. Only return Correct or Incorrect.
 
     # Extract the model's response
     judge_response = response.choices[0].message.content.strip()
-    print(f"Judge response: {judge_response}")
     if "incorrect" in judge_response.lower():
-        print("Judge response: Incorrect")
         return 0
-    print("Judge response: Correct")
     return 1
 
 
@@ -110,19 +93,19 @@ def mazenav_process_results(doc, results):
     pred = results[0]
 
     question_id = parse_question_id(doc["question_id"])
-    # llm_judge_result = judge_with_llm(pred, doc["answer"], dict())
+    llm_judge_result = judge_with_llm(pred, doc["answer"], dict())
 
     parsed_pred = extract_answer_from_text_mazenav(pred, question_id=question_id)
 
     ref_ans = str(doc["answer"]).lower()
     parsed_pred = str(parsed_pred).lower() if parsed_pred is not None else "null"
     eval_result = int(ref_ans.lower() in parsed_pred.lower())
-    ref_ans_opt = chr(65 + doc["choices"].index(doc["answer"]))  
+    ref_ans_opt = chr(65 + doc["choices"].index(doc["answer"]))
     eval_result_opt = int(ref_ans_opt.lower() in pred.lower())
     eval_result = max(eval_result, eval_result_opt)
 
-    # return_dict = {"parsed_match": eval_result, "llm_match": llm_judge_result}
-    return_dict = {"parsed_match": eval_result}
+    return_dict = {"parsed_match": eval_result, "gpt_eval_match": llm_judge_result}
+    # return_dict = {"parsed_match": eval_result}
     return return_dict
 
 
